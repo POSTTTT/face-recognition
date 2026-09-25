@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Face Recognition Test</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { max-width: 720px; margin: 2rem auto; padding: 0 16px; }
+  fieldset { margin-bottom: 1rem; }
+  input, button { font: inherit; padding: .4rem .6rem; }
+  button:disabled { opacity: .5; }
+  img { width: 100%; max-width: 640px; aspect-ratio: 4 / 3; background: #0002; display: block; }
+  #result { font-size: 1.4rem; font-weight: 600; min-height: 1.5em; margin: 1rem 0; }
+  .granted { color: #1a7f37; } .unknown, .spoof_suspected, .no_face, .error { color: #cf222e; }
+  table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: .25rem .5rem; border-bottom: 1px solid #8884; }
+</style>
+</head>
+<body>
+<h1>Face recognition test</h1>
+
+<fieldset>
+  <legend>Enroll</legend>
+  <label>Name <input id="name" required></label>
+  <label>Role <input id="role" value="user"></label>
+  <button id="enroll">Enroll</button>
+</fieldset>
+<fieldset>
+  <legend>Door</legend>
+  <button id="recognize">Recognize</button>
+  <small>Turn your head slowly left and right.</small>
+</fieldset>
+
+<img id="preview" hidden alt="Camera preview while a scan is running" onload="this.hidden = false">
+<div id="result" role="status"></div>
+
+<h2>Recent attempts</h2>
+<table><thead><tr><th>Time (UTC)</th><th>Name</th><th>Result</th><th>Score</th></tr></thead><tbody id="logs"></tbody></table>
+
+<script>
+const $ = id => document.getElementById(id);
+const buttons = [$("enroll"), $("recognize")];
+let timer;
+
+function show(text, cls) { $("result").textContent = text; $("result").className = cls; }
+
+async function run(url, body) {
+  buttons.forEach(b => b.disabled = true);
+  show("Scanning…", "");
+  timer = setInterval(() => { $("preview").src = "/preview.jpg?" + Date.now(); }, 150);
+  try {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) });
+    const data = await r.json();
+    if (!r.ok) show("Error: " + (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)), "error");
+    else if ("user_id" in data && !("result" in data)) show(`Enrolled with id ${data.user_id}`, "granted");
+    else show(`${data.result}${data.name ? " — " + data.name : ""} (score ${data.score})`, data.result);
+  } catch (e) {
+    show("Error: " + e.message, "error");
+  } finally {
+    clearInterval(timer);
+    buttons.forEach(b => b.disabled = false);
+    loadLogs();
+  }
+}
+
+async function loadLogs() {
+  const rows = await (await fetch("/logs")).json();
+  $("logs").replaceChildren(...rows.map(r => {
+    const tr = document.createElement("tr");
+    for (const v of [r.timestamp, r.name ?? "—", r.result, r.score?.toFixed(3)]) tr.insertCell().textContent = v;
+    return tr;
+  }));
+}
+
+$("enroll").onclick = () => {
+  if (!$("name").value.trim()) return $("name").reportValidity();
+  run("/enroll", { name: $("name").value.trim(), role: $("role").value.trim() || "user" });
+};
+$("recognize").onclick = () => run("/recognize");
+loadLogs();
+</script>
+</body>
+</html>

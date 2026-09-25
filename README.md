@@ -1,0 +1,147 @@
+# Face recognition module
+
+This module identifies a registered person from the laptop camera and tells the backend who they are. The backend then decides whether to open the door.
+It implements `Face Recognition Module — Implementation Plan.pdf`.
+
+The pipeline for each attempt:
+
+1. OpenCV reads frames from the camera at 640×480.
+2. InsightFace RetinaFace finds the face and its eye, nose and mouth points.
+3. A quality check skips frames where the face is too small, blurry or badly lit.
+4. A liveness check asks you to turn your head left and right, to block photos held up to the camera.
+5. InsightFace aligns the face and ArcFace turns it into a 512-number embedding.
+6. The embedding is compared to every stored one with cosine similarity.
+7. The result is logged to SQLite and returned.
+
+Only embeddings are stored, never photos.
+
+## Setup
+
+You need Python 3.10 or newer and a webcam.
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+The first run downloads the `buffalo_l` model (about 280 MB) into `~/.insightface`.
+
+On macOS, the first scan asks for camera permission for your terminal app (Terminal, iTerm or VS Code). Allow it. If you denied it before, turn it on in **System Settings → Privacy & Security → Camera** and restart the terminal.
+
+## Using the web test page
+
+```sh
+.venv/bin/uvicorn api:app --port 8000
+```
+
+Open http://localhost:8000.
+
+**Enroll a person**
+
+1. Type a name. The role is optional and defaults to `user`.
+2. Click **Enroll** and look at the camera.
+3. Move your head a little and change your expression while it takes 8 shots, about 0.4 s apart.
+4. The box around your face is green when the frame is good enough to use, and red when the face is too small, blurry, or too dark or bright.
+5. On success the page shows `Enrolled with id N`. If fewer than 5 good shots were captured within 30 s, it shows an error. Improve the lighting or move closer, then try again.
+
+**Recognize (door check)**
+
+1. Click **Recognize**.
+2. Face the camera and slowly turn your head left, then right.
+3. The page shows one of these results:
+
+| Result | Meaning |
+|---|---|
+| `granted` | The face matched a registered person, and the page shows their name and score. |
+| `unknown` | A real face was seen, but no stored face scored above the threshold. |
+| `spoof_suspected` | A face was seen but the head never turned enough. It could be a photo, or you didn't turn your head. |
+| `no_face` | No usable face was seen within 10 s. |
+
+Every attempt appears in the **Recent attempts** table.
+
+## Using the command line
+
+These commands open an OpenCV preview window instead of the web page.
+
+```sh
+.venv/bin/python face.py enroll "Alice" admin   # enroll a person with a role
+.venv/bin/python face.py recognize              # run one door check and print the result
+.venv/bin/python face.py compare a.jpg b.jpg    # show the similarity score between two photos
+```
+
+## API for the team backend
+
+The server listens on the port you gave to uvicorn. Interactive docs are at http://localhost:8000/docs.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/enroll` | `{"name": "Alice", "role": "admin"}` | `{"user_id": 1}`, or 422 if not enough good shots were captured |
+| POST | `/recognize` | none | `{"result": "granted", "user_id": 1, "name": "Alice", "score": 0.62}` |
+| GET | `/logs` | none | The last 20 attempts |
+| GET | `/preview.jpg` | none | The latest camera frame during a scan, or 404 |
+
+Only one scan runs at a time because there is one camera. Each call blocks until its scan finishes (up to 10 s for `/recognize` and 30 s for `/enroll`).
+
+Example from the backend:
+
+```python
+import requests
+
+r = requests.post("http://localhost:8000/recognize", timeout=15).json()
+if r["result"] == "granted":
+    open_door()  # your microcontroller / relay code
+```
+
+## Database
+
+The database is `door.db` (SQLite). It is created automatically in the directory you start the program from.
+
+| Table | Columns |
+|---|---|
+| `users` | id, name, role, is_active, created_at |
+| `face_embeddings` | id, user_id, embedding (512 float32 values as a BLOB), model_name, created_at |
+| `access_logs` | id, user_id, method, result, score, timestamp |
+
+To disable a person without deleting them, run:
+
+```sh
+sqlite3 door.db "UPDATE users SET is_active = 0 WHERE name = 'Alice'"
+```
+
+Then restart the server, because it loads the embeddings into memory at startup.
+
+## Tuning
+
+All settings are at the top of `face.py`.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `THRESHOLD` | 0.40 | The minimum cosine score for a match. Raise it if the wrong people get accepted; lower it if registered people get rejected. |
+| `MIN_FACE_PX` | 80 | The smallest face size in pixels. Lower it if people stand far from the camera. |
+| `MIN_SHARPNESS` | 60 | The blur limit. Lower it for a soft or cheap webcam. |
+| `BRIGHTNESS` | (50, 210) | The allowed brightness range of the face. |
+| `MIN_YAW_RANGE` | 0.30 | How far the head must turn for liveness. Raise it to make spoofing harder. |
+| `FRAME_SKIP` | 2 | Only every Nth frame is processed. Raise it if the CPU is slow. |
+
+To tune `THRESHOLD`:
+
+1. Run `face.py compare` on pairs of photos of the same person and on pairs of different people.
+2. Set the threshold between the two groups of scores.
+3. Test with people who are not registered.
+
+## Tests
+
+These tests don't need a camera:
+
+```sh
+.venv/bin/python test_face.py
+```
+
+They check matching, the database and real embeddings on a sample photo that comes with InsightFace.
+
+## Troubleshooting
+
+- **`cannot open camera`:** another app is using the camera, or the terminal doesn't have camera permission (see Setup).
+- **Always `spoof_suspected`:** turn your head more, or lower `MIN_YAW_RANGE`.
+- **Always `no_face` or red boxes:** there isn't enough light or the face is too far away. Add a lamp, move closer, or relax the quality settings.
+- **Registered person gets `unknown`:** enroll again under the same lighting as the demo spot, or lower `THRESHOLD` slightly.
