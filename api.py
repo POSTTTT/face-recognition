@@ -15,6 +15,11 @@ camera = threading.Lock()  # one camera, one scan at a time
 latest = {"jpg": None}  # last annotated frame of the running scan, for the test page
 
 
+def fresh_show():
+    latest["jpg"] = None  # don't let the page show the previous scan's last frame
+    return show
+
+
 def show(frame):
     latest["jpg"] = cv2.imencode(".jpg", frame)[1].tobytes()
 
@@ -28,7 +33,7 @@ class Enroll(BaseModel):
 def enroll(body: Enroll):
     with camera:
         try:
-            return {"user_id": face.enroll(body.name, body.role, show=show)}
+            return {"user_id": face.enroll(body.name, body.role, show=fresh_show())}
         except RuntimeError as e:
             raise HTTPException(422, str(e))
 
@@ -38,7 +43,7 @@ def recognize():
     """result: granted | unknown | spoof_suspected | no_face. The backend decides whether to open the door."""
     with camera:
         try:
-            return face.recognize(show=show)
+            return face.recognize(show=fresh_show())
         except RuntimeError as e:
             raise HTTPException(503, str(e))
 

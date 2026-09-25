@@ -34,30 +34,33 @@ On macOS, the first scan asks for camera permission for your terminal app (Termi
 .venv/bin/uvicorn api:app --port 8000
 ```
 
-Open http://localhost:8000.
+Open http://localhost:8000. The page shows the camera view on the left, a result banner under it, and the actions and recent attempts on the right. The camera only turns on while a scan is running.
 
 **Enroll a person**
 
-1. Type a name. The role is optional and defaults to `user`.
-2. Click **Enroll** and look at the camera.
-3. Move your head a little and change your expression while it takes 8 shots, about 0.4 s apart.
-4. The box around your face is green when the frame is good enough to use, and red when the face is too small, blurry, or too dark or bright.
-5. On success the page shows `Enrolled with id N`. If fewer than 5 good shots were captured within 30 s, it shows an error. Improve the lighting or move closer, then try again.
+1. Open the **Enroll** tab.
+2. Type a name. The role is optional and defaults to `user`.
+3. Click **Enroll person** and look at the camera.
+4. Move your head a little and change your expression while it takes 8 shots, about 0.4 s apart.
+5. Watch the box around your face. It is green when the frame is good enough to use, and red when the face is too small, blurry, or too dark or bright.
+6. On success the banner shows "Alice enrolled" with the new user number. If fewer than 5 good shots were captured within 30 s, it shows "Enrollment failed". Improve the lighting or move closer, then try again.
 
-**Recognize (door check)**
+**Door check**
 
-1. Click **Recognize**.
+1. Open the **Door check** tab and click **Start door check**.
 2. Face the camera and slowly turn your head left, then right.
-3. The page shows one of these results:
+3. The banner shows one of these results:
 
-| Result | Meaning |
-|---|---|
-| `granted` | The face matched a registered person, and the page shows their name and score. |
-| `unknown` | A real face was seen, but no stored face scored above the threshold. |
-| `spoof_suspected` | A face was seen but the head never turned enough. It could be a photo, or you didn't turn your head. |
-| `no_face` | No usable face was seen within 10 s. |
+| Banner | API result | Meaning |
+|---|---|---|
+| Green: Access granted | `granted` | The face matched a registered person. The banner shows their name and match score. |
+| Red: Access denied | `unknown` | A real face was seen, but no stored face scored above the threshold. |
+| Amber: Liveness check failed | `spoof_suspected` | A face was seen but the head never turned enough. It could be a photo, or you didn't turn your head. |
+| Amber: No face found | `no_face` | No usable face was seen within 10 s. |
 
-Every attempt appears in the **Recent attempts** table.
+Every attempt appears under **Recent attempts**, with times in your local time zone.
+
+The page loads its fonts from Google Fonts. Without internet access it falls back to system fonts and still works.
 
 ## Using the command line
 

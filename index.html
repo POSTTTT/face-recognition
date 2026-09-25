@@ -3,80 +3,356 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Face Recognition Test</title>
+<title>Door Access Console</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233ecf9e' stroke-width='2' stroke-linecap='round'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-  body { max-width: 720px; margin: 2rem auto; padding: 0 16px; }
-  fieldset { margin-bottom: 1rem; }
-  input, button { font: inherit; padding: .4rem .6rem; }
-  button:disabled { opacity: .5; }
-  img { width: 100%; max-width: 640px; aspect-ratio: 4 / 3; background: #0002; display: block; }
-  #result { font-size: 1.4rem; font-weight: 600; min-height: 1.5em; margin: 1rem 0; }
-  .granted { color: #1a7f37; } .unknown, .spoof_suspected, .no_face, .error { color: #cf222e; }
-  table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: .25rem .5rem; border-bottom: 1px solid #8884; }
+  :root {
+    color-scheme: dark;
+    --bg: #0b0f12;
+    --panel: #12181c;
+    --panel-2: #182025;
+    --line: #243038;
+    --text: #e4ecef;
+    --muted: #93a3ab;
+    --ok: #3ecf9e;
+    --ok-ink: #062a1e;
+    --bad: #ff6b6b;
+    --warn: #f5b84a;
+    --focus: #7cc4ff;
+    --radius: 10px;
+    --ease: cubic-bezier(.16, 1, .3, 1);
+    --sans: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: #3ecf9e40; color: var(--text); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 10px; border: 3px solid var(--panel); }
+  svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 16px 24px; border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; display: flex; align-items: center; gap: 10px; }
+  h1 svg { color: var(--ok); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: 99px;
+    border: 1px solid var(--line); color: var(--muted); font-size: 13px;
+  }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill[data-state="online"] i { background: var(--ok); }
+  .pill[data-state="busy"] i { background: var(--warn); animation: blink 1s infinite; }
+  .pill[data-state="offline"] i { background: var(--bad); }
+
+  main {
+    display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px;
+    max-width: 1200px; margin: 0 auto; padding: 24px;
+  }
+
+  /* Camera stage */
+  .stage {
+    position: relative; aspect-ratio: 4 / 3; border-radius: var(--radius); overflow: hidden;
+    background: radial-gradient(ellipse at center, #141c21, #0a0d10 70%); border: 1px solid var(--line);
+  }
+  .stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity .4s var(--ease), filter .4s var(--ease); }
+  .stage[data-state="done"] img { opacity: .45; filter: saturate(.4); }
+  .idle {
+    position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px;
+    color: var(--muted); text-align: center; padding: 24px;
+  }
+  .idle svg { width: 40px; height: 40px; stroke-width: 1.25; }
+  .idle p { margin: 0; max-width: 32ch; }
+  .corners { position: absolute; inset: 14%; pointer-events: none; opacity: .5; transition: opacity .3s, inset .6s var(--ease); }
+  .corners::before {
+    content: ""; position: absolute; inset: 0; border: 2px solid var(--text); border-radius: 14px;
+    -webkit-mask: linear-gradient(#000 0 0) top left / 28px 28px no-repeat, linear-gradient(#000 0 0) top right / 28px 28px no-repeat,
+                  linear-gradient(#000 0 0) bottom left / 28px 28px no-repeat, linear-gradient(#000 0 0) bottom right / 28px 28px no-repeat;
+            mask: linear-gradient(#000 0 0) top left / 28px 28px no-repeat, linear-gradient(#000 0 0) top right / 28px 28px no-repeat,
+                  linear-gradient(#000 0 0) bottom left / 28px 28px no-repeat, linear-gradient(#000 0 0) bottom right / 28px 28px no-repeat;
+  }
+  .stage[data-state="scanning"] .corners { opacity: 1; inset: 10%; animation: breathe 1.6s ease-in-out infinite; }
+  .stage[data-state="scanning"] .corners::before { border-color: var(--warn); }
+
+  /* Status banner */
+  .status {
+    --tone: var(--muted);
+    display: flex; align-items: center; gap: 16px; margin-top: 16px; padding: 18px 20px;
+    border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line);
+    position: relative; overflow: hidden;
+  }
+  .status::before {
+    content: ""; position: absolute; inset: 0; background: var(--tone); opacity: .12;
+    clip-path: inset(0 100% 0 0); transition: clip-path .7s var(--ease);
+  }
+  .status.show::before { clip-path: inset(0 0 0 0); }
+  .status svg { width: 32px; height: 32px; color: var(--tone); position: relative; }
+  .status div { position: relative; min-width: 0; }
+  .status strong { display: block; font-size: 22px; font-weight: 700; letter-spacing: -.015em; color: var(--tone); }
+  .status span { color: var(--muted); }
+  .status[data-tone="ok"] { --tone: var(--ok); border-color: #3ecf9e55; }
+  .status[data-tone="bad"] { --tone: var(--bad); border-color: #ff6b6b55; }
+  .status[data-tone="warn"] { --tone: var(--warn); border-color: #f5b84a55; }
+  .status[data-tone="busy"] { --tone: var(--text); }
+  .status .score { margin-left: auto; font: 500 15px var(--mono); font-variant-numeric: tabular-nums; color: var(--text); text-align: right; }
+  .status .score small { display: block; font: 12px var(--sans); color: var(--muted); }
+
+  /* Side rail */
+  aside { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+  h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); padding: 14px 16px 0; }
+
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 12px 16px 0; padding: 4px; background: var(--bg); border-radius: 8px; }
+  .tabs button {
+    font: 500 15px var(--sans); color: var(--muted); background: none; border: 0; padding: 8px; border-radius: 6px; cursor: pointer;
+    transition: background .2s, color .2s;
+  }
+  .tabs button[aria-selected="true"] { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 2px #0006; }
+  .tab { padding: 16px; display: grid; gap: 14px; }
+  .tab[hidden] { display: none; }
+  .tab p { margin: 0; color: var(--muted); font-size: 15px; }
+  label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+  input {
+    font: 15px var(--sans); color: var(--text); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; transition: border-color .2s;
+  }
+  input::placeholder { color: #6f7f87; }
+  input:hover { border-color: #33434d; }
+  input:focus-visible { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px #7cc4ff33; }
+  input[aria-invalid="true"] { border-color: var(--bad); }
+  .primary {
+    display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
+    font: 600 15px var(--sans); color: var(--ok-ink); background: var(--ok); border: 0; border-radius: 8px;
+    padding: 12px 16px; cursor: pointer; transition: filter .15s, transform .15s var(--ease);
+  }
+  .primary:hover { filter: brightness(1.08); }
+  .primary:active { transform: scale(.98); }
+  .primary:disabled { cursor: progress; filter: saturate(.3) brightness(.7); }
+
+  .log { list-style: none; margin: 0; padding: 8px 8px 12px; max-height: 420px; overflow: auto; }
+  .log li {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
+    padding: 10px 8px; border-radius: 6px;
+  }
+  .log li + li { border-top: 1px solid var(--line); }
+  .log .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .log .dot.ok { background: var(--ok); } .log .dot.warn { background: var(--warn); }
+  .log b { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log small { color: var(--muted); font-size: 12px; }
+  .log time, .log .num { font: 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
+  .empty { padding: 20px 16px 24px; color: var(--muted); font-size: 15px; margin: 0; }
+
+  @keyframes blink { 50% { opacity: .3; } }
+  @keyframes breathe { 50% { inset: 12%; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
+  }
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; padding: 16px; gap: 16px; }
+    header { padding: 14px 16px; }
+    .status strong { font-size: 19px; }
+    .status { flex-wrap: wrap; }
+  }
 </style>
 </head>
 <body>
-<h1>Face recognition test</h1>
+<header>
+  <h1>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    Door access console
+  </h1>
+  <span class="pill" id="conn" data-state="online" role="status"><i></i><span>Ready</span></span>
+</header>
 
-<fieldset>
-  <legend>Enroll</legend>
-  <label>Name <input id="name" required></label>
-  <label>Role <input id="role" value="user"></label>
-  <button id="enroll">Enroll</button>
-</fieldset>
-<fieldset>
-  <legend>Door</legend>
-  <button id="recognize">Recognize</button>
-  <small>Turn your head slowly left and right.</small>
-</fieldset>
+<main>
+  <div>
+    <div class="stage" id="stage" data-state="idle">
+      <img id="preview" hidden alt="Live camera view during the scan" onload="this.hidden = false">
+      <div class="idle" id="idle">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        <p>The camera turns on when you start a door check or enroll someone.</p>
+      </div>
+      <div class="corners" aria-hidden="true"></div>
+    </div>
 
-<img id="preview" hidden alt="Camera preview while a scan is running" onload="this.hidden = false">
-<div id="result" role="status"></div>
+    <div class="status" id="status" aria-live="polite">
+      <svg id="status-icon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      <div><strong id="status-title">Ready</strong><span id="status-text">Start a door check to identify the person at the camera.</span></div>
+      <div class="score" id="score" hidden></div>
+    </div>
+  </div>
 
-<h2>Recent attempts</h2>
-<table><thead><tr><th>Time (UTC)</th><th>Name</th><th>Result</th><th>Score</th></tr></thead><tbody id="logs"></tbody></table>
+  <aside>
+    <section>
+      <div class="tabs" role="tablist" aria-label="Action">
+        <button role="tab" id="tab-door" aria-selected="true" aria-controls="panel-door">Door check</button>
+        <button role="tab" id="tab-enroll" aria-selected="false" aria-controls="panel-enroll" tabindex="-1">Enroll</button>
+      </div>
+      <div class="tab" id="panel-door" role="tabpanel" aria-labelledby="tab-door">
+        <p>Face the camera, then turn your head slowly left and right until the scan finishes.</p>
+        <button class="primary" id="recognize">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="11" r="3"/><path d="M8 17a4.5 4.5 0 0 1 8 0"/></svg>
+          Start door check
+        </button>
+      </div>
+      <form class="tab" id="panel-enroll" role="tabpanel" aria-labelledby="tab-enroll" hidden novalidate>
+        <label>Name <input id="name" autocomplete="off" placeholder="e.g. Alice Tan" required></label>
+        <label>Role <input id="role" list="roles" value="user"></label>
+        <datalist id="roles"><option value="user"><option value="admin"><option value="guest"></datalist>
+        <p>The camera takes 8 shots. Move your head a little and change your expression between shots.</p>
+        <button class="primary" id="enroll">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="4"/><path d="M3 21a7 7 0 0 1 14 0M19 8v6M16 11h6"/></svg>
+          Enroll person
+        </button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Recent attempts</h2>
+      <ol class="log" id="logs" hidden></ol>
+      <p class="empty" id="logs-empty">No attempts yet. Door checks appear here with their score.</p>
+    </section>
+  </aside>
+</main>
 
 <script>
 const $ = id => document.getElementById(id);
-const buttons = [$("enroll"), $("recognize")];
-let timer;
+const ICONS = {
+  ready: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  granted: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
+  denied: '<circle cx="12" cy="12" r="9"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/>',
+  warn: '<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5v.01"/>',
+  busy: '<circle cx="12" cy="12" r="9" stroke-dasharray="4 3"/><circle cx="12" cy="12" r="2"/>',
+  enrolled: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
+};
+const RESULTS = {
+  granted: { tone: "ok", icon: "granted", title: d => `Access granted, ${d.name}`, text: () => "Identity matched. The backend may open the door." },
+  unknown: { tone: "bad", icon: "denied", title: () => "Access denied", text: () => "This face doesn't match anyone enrolled." },
+  spoof_suspected: { tone: "warn", icon: "warn", title: () => "Liveness check failed", text: () => "The head didn't turn enough. It may be a photo. Try again and turn your head left and right." },
+  no_face: { tone: "warn", icon: "warn", title: () => "No face found", text: () => "Move closer to the camera, or add more light, and try again." },
+};
+const LOG_LABEL = { granted: "Granted", unknown: "Unknown face", spoof_suspected: "Liveness failed", no_face: "No face" };
 
-function show(text, cls) { $("result").textContent = text; $("result").className = cls; }
+function setStatus(tone, icon, title, text, score) {
+  const s = $("status");
+  s.classList.remove("show"); void s.offsetWidth;
+  s.dataset.tone = tone;
+  $("status-icon").innerHTML = ICONS[icon];
+  $("status-title").textContent = title;
+  $("status-text").textContent = text;
+  $("score").hidden = score == null;
+  if (score != null) $("score").innerHTML = `${score.toFixed(3)}<small>match score</small>`;
+  if (tone !== "busy") s.classList.add("show");
+}
 
-async function run(url, body) {
-  buttons.forEach(b => b.disabled = true);
-  show("Scanning…", "");
-  timer = setInterval(() => { $("preview").src = "/preview.jpg?" + Date.now(); }, 150);
+function setBusy(busy, label) {
+  $("recognize").disabled = $("enroll").disabled = busy;
+  $("conn").dataset.state = busy ? "busy" : "online";
+  $("conn").lastChild.textContent = busy ? label : "Ready";
+}
+
+async function run(url, body, label) {
+  setBusy(true, label);
+  $("stage").dataset.state = "scanning";
+  $("preview").hidden = true;
+  $("idle").hidden = false;
+  setStatus("busy", "busy", label + "…", url === "/enroll" ? "Hold still. Small changes in angle between shots help." : "Turn your head slowly left, then right.");
+  const timer = setInterval(() => {
+    const img = new Image();
+    img.onload = () => { $("preview").src = img.src; $("idle").hidden = true; };
+    img.src = "/preview.jpg?" + Date.now();
+  }, 150);
   try {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) });
-    const data = await r.json();
-    if (!r.ok) show("Error: " + (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)), "error");
-    else if ("user_id" in data && !("result" in data)) show(`Enrolled with id ${data.user_id}`, "granted");
-    else show(`${data.result}${data.name ? " — " + data.name : ""} (score ${data.score})`, data.result);
-  } catch (e) {
-    show("Error: " + e.message, "error");
-  } finally {
-    clearInterval(timer);
-    buttons.forEach(b => b.disabled = false);
-    loadLogs();
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const msg = typeof data.detail === "string" ? data.detail : "The server returned an error.";
+      setStatus("warn", "warn", url === "/enroll" ? "Enrollment failed" : "Camera problem", msg[0].toUpperCase() + msg.slice(1) + ".");
+    } else if (url === "/enroll") {
+      setStatus("ok", "enrolled", `${body.name} enrolled`, `Saved as user #${data.user_id}. Run a door check to test it.`);
+      $("name").value = "";
+    } else {
+      const res = RESULTS[data.result];
+      setStatus(res.tone, res.icon, res.title(data), res.text(data), data.score || null);
+    }
+    $("conn").dataset.state = "online";
+  } catch {
+    setStatus("bad", "denied", "Can't reach the server", "Check that uvicorn is still running, then try again.");
+    setBusy(false); $("conn").dataset.state = "offline"; $("conn").lastChild.textContent = "Offline";
+    clearInterval(timer); $("stage").dataset.state = "done";
+    return;
   }
+  clearInterval(timer);
+  $("stage").dataset.state = "done";
+  setBusy(false);
+  loadLogs();
+}
+
+function when(ts) {
+  const d = new Date(ts.replace(" ", "T") + "Z");
+  const today = d.toDateString() === new Date().toDateString();
+  return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+               : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 async function loadLogs() {
-  const rows = await (await fetch("/logs")).json();
-  $("logs").replaceChildren(...rows.map(r => {
-    const tr = document.createElement("tr");
-    for (const v of [r.timestamp, r.name ?? "—", r.result, r.score?.toFixed(3)]) tr.insertCell().textContent = v;
-    return tr;
-  }));
+  try {
+    const rows = await (await fetch("/logs")).json();
+    $("logs").hidden = !rows.length;
+    $("logs-empty").hidden = !!rows.length;
+    $("logs").replaceChildren(...rows.map(r => {
+      const li = document.createElement("li");
+      const dot = document.createElement("span");
+      dot.className = "dot " + (r.result === "granted" ? "ok" : r.result === "unknown" ? "" : "warn");
+      const who = document.createElement("div");
+      const b = document.createElement("b"); b.textContent = r.name ?? LOG_LABEL[r.result] ?? r.result;
+      const small = document.createElement("small");
+      small.textContent = r.name ? LOG_LABEL[r.result] : r.score ? `score ${r.score.toFixed(3)}` : "No score";
+      if (r.name && r.score) small.textContent += ` · ${r.score.toFixed(3)}`;
+      who.append(b, small);
+      const t = document.createElement("time"); t.dateTime = r.timestamp + "Z"; t.textContent = when(r.timestamp);
+      li.append(dot, who, t);
+      return li;
+    }));
+  } catch { /* the status banner already reports a dead server */ }
 }
 
-$("enroll").onclick = () => {
-  if (!$("name").value.trim()) return $("name").reportValidity();
-  run("/enroll", { name: $("name").value.trim(), role: $("role").value.trim() || "user" });
+// Tabs: click and arrow keys.
+const tabs = [$("tab-door"), $("tab-enroll")];
+function selectTab(tab) {
+  for (const t of tabs) {
+    const on = t === tab;
+    t.setAttribute("aria-selected", on); t.tabIndex = on ? 0 : -1;
+    $(t.getAttribute("aria-controls")).hidden = !on;
+  }
+  tab.focus();
+}
+tabs.forEach(t => {
+  t.onclick = () => selectTab(t);
+  t.onkeydown = e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") selectTab(tabs[1 - tabs.indexOf(t)]); };
+});
+
+$("recognize").onclick = () => run("/recognize", null, "Checking face");
+$("panel-enroll").onsubmit = e => {
+  e.preventDefault();
+  const name = $("name").value.trim();
+  $("name").setAttribute("aria-invalid", !name);
+  if (!name) { $("name").focus(); setStatus("warn", "warn", "Name required", "Type the person's name before enrolling."); return; }
+  run("/enroll", { name, role: $("role").value.trim() || "user" }, "Enrolling");
 };
-$("recognize").onclick = () => run("/recognize");
+$("name").oninput = () => $("name").removeAttribute("aria-invalid");
+
+setStatus("idle", "ready", "Ready", "Start a door check to identify the person at the camera.");
+$("status").classList.remove("show");
 loadLogs();
 </script>
 </body>
